@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"github.com/cactus/go-statsd-client/statsd"
 	"github.com/codegangsta/cli"
-	"github.com/codeskyblue/go-sh"
 	"github.com/fatih/color"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -22,8 +23,18 @@ func main() {
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "haproxy-url",
-			Value: "localhost:22002/;csv",
-			Usage: "host:port of haproxy server",
+			Value: "http://localhost:22002/;csv",
+			Usage: "URL for haproxy server",
+		},
+		cli.StringFlag{
+			Name:  "haproxy-user",
+			Value: "username",
+			Usage: "HTTP auth username for haproxy server",
+		},
+		cli.StringFlag{
+			Name:  "haproxy-pass",
+			Value: "password",
+			Usage: "HTTP auth password for haproxy server",
 		},
 		cli.StringFlag{
 			Name:  "statsd-url, s",
@@ -51,7 +62,8 @@ func main() {
 			}
 			// make sure to clean up
 			defer client.Close()
-			initial_stats := get_stats(c.String("haproxy-url"))
+			initial_stats, err := get_stats(c.String("haproxy-url"), c.String("haproxy-user"), c.String("haproxy-pass"))
+			// TODO: handle err
 			previous := map[string]int64{}
 			for _, v := range initial_stats {
 				if v[1] == "BACKEND" {
@@ -63,7 +75,8 @@ func main() {
 				}
 			}
 			time.Sleep(time.Duration(interval) * time.Millisecond)
-			records := get_stats(c.String("haproxy-url"))
+			records, err := get_stats(c.String("haproxy-url"), c.String("haproxy-user"), c.String("haproxy-pass"))
+			// TODO: handle err
 			for _, record := range records {
 				if record[1] == "BACKEND" {
 					go send_gauge(client, record, "scur", 4)
@@ -116,12 +129,25 @@ func get_value(v []string, name string, position int64) int64 {
 	return value
 }
 
-func get_stats(url string) [][]string {
-	stats, _ := sh.Command("curl", url).Output()
-	r := csv.NewReader(strings.NewReader(string(stats)))
+func get_stats(url string, user string, pass string) ([][]string, error) {
+	// TODO: validate url, make sure its fully qualified.
+
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", url, nil)
+	if len(user) > 0 && len(pass) > 0 {
+		req.SetBasicAuth(user, pass)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return [][]string{}, err
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+
+	r := csv.NewReader(strings.NewReader(string(body)))
 	records, err := r.ReadAll()
 	if err != nil {
 		log.Fatal(err)
 	}
-	return records
+	return records, nil
 }
