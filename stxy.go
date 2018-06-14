@@ -46,10 +46,10 @@ func main() {
 			Usage: "statsd namespace",
 			Value: "haproxy",
 		},
-		cli.StringFlag{
+		cli.IntFlag{
 			Name:  "interval,i",
 			Usage: "time in milliseconds",
-			Value: "10000",
+			Value: 10000,
 		},
 		cli.BoolFlag{
 			Name:  "debug,d",
@@ -57,8 +57,14 @@ func main() {
 		},
 	}
 	app.Action = func(c *cli.Context) {
-		interval, _ := strconv.ParseInt(c.String("interval"), 10, 64)
+		interval := c.Int("interval")
+		if interval < 10 {
+			log.Printf("ERROR: interval should be at least 10ms, exiting.")
+			os.Exit(1)
+		}
+		failures := 0
 		for {
+			// TODO: can we reuse this...? rather than recreating per iteration?
 			client, err := statsd.NewClient(c.String("s"), c.String("p"))
 			// handle any errors
 			if err != nil {
@@ -67,13 +73,31 @@ func main() {
 			// make sure to clean up
 			defer client.Close()
 			initial_stats, err := get_stats(c.String("haproxy-url"), c.String("haproxy-user"), c.String("haproxy-pass"))
-			// TODO: handle err
+			if err != nil {
+				failures += 1
+				log.Printf("Error retrieving haproxy stats: %s\n", err.Error())
+				if failures > 10 {
+					log.Printf("Max of 10 sequential failures reached, exiting.\n")
+					os.Exit(1)
+				} else {
+					log.Printf("Sleeping %d ms before retrying...\n", interval)
+					time.Sleep(time.Duration(interval) * time.Millisecond)
+					log.Printf("Retrying...\n")
+					continue
+				}
+			} else {
+				// Reset failures if there's success.
+				failures = 0
+			}
 			previous := map[string]int64{}
-			if c.Bool("debug") {
+			if c.Bool("debug") == true {
 				fmt.Printf("INITIAL:\n")
 			}
+			if c.Bool("debug") == true {
+				fmt.Printf("%+v\n------------\n", initial_stats)
+			}
 			for k1, v := range initial_stats {
-				if c.Bool("debug") {
+				if c.Bool("debug") == true {
 					fmt.Printf("%s :: %+v\n", k1, v)
 				}
 				if v[1] == "BACKEND" {
@@ -89,7 +113,19 @@ func main() {
 			}
 			time.Sleep(time.Duration(interval) * time.Millisecond)
 			records, err := get_stats(c.String("haproxy-url"), c.String("haproxy-user"), c.String("haproxy-pass"))
-			// TODO: handle err
+			if err != nil {
+				failures += 1
+				log.Printf("Error retrieving haproxy stats: %s\n", err.Error())
+				if failures > 10 {
+					log.Printf("Max of 10 sequential failures reached, exiting.\n")
+					os.Exit(1)
+				} else {
+					log.Printf("Sleeping %d ms before retrying...\n", interval)
+					time.Sleep(time.Duration(interval) * time.Millisecond)
+					log.Printf("Retrying...\n")
+					continue
+				}
+			}
 			if c.Bool("debug") {
 				fmt.Printf("RECORDS:")
 			}
