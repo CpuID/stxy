@@ -51,6 +51,10 @@ func main() {
 			Usage: "time in milliseconds",
 			Value: "10000",
 		},
+		cli.BoolFlag{
+			Name:  "debug,d",
+			Usage: "debug mode",
+		},
 	}
 	app.Action = func(c *cli.Context) {
 		interval, _ := strconv.ParseInt(c.String("interval"), 10, 64)
@@ -65,7 +69,13 @@ func main() {
 			initial_stats, err := get_stats(c.String("haproxy-url"), c.String("haproxy-user"), c.String("haproxy-pass"))
 			// TODO: handle err
 			previous := map[string]int64{}
-			for _, v := range initial_stats {
+			if c.Bool("debug") {
+				fmt.Printf("INITIAL:\n")
+			}
+			for k1, v := range initial_stats {
+				if c.Bool("debug") {
+					fmt.Printf("%s :: %+v\n", k1, v)
+				}
 				if v[1] == "BACKEND" {
 					previous[fmt.Sprint("1xx_", v[0])] = get_value(v, "hrsp_1xx", 39)
 					previous[fmt.Sprint("2xx_", v[0])] = get_value(v, "hrsp_2xx", 40)
@@ -74,10 +84,19 @@ func main() {
 					previous[fmt.Sprint("5xx_", v[0])] = get_value(v, "hrsp_5xx", 43)
 				}
 			}
+			if c.Bool("debug") {
+				fmt.Printf("END INITIAL.")
+			}
 			time.Sleep(time.Duration(interval) * time.Millisecond)
 			records, err := get_stats(c.String("haproxy-url"), c.String("haproxy-user"), c.String("haproxy-pass"))
 			// TODO: handle err
-			for _, record := range records {
+			if c.Bool("debug") {
+				fmt.Printf("RECORDS:")
+			}
+			for k2, record := range records {
+				if c.Bool("debug") {
+					fmt.Printf("%s :: %+v\n", k2, record)
+				}
 				if record[1] == "BACKEND" {
 					go send_gauge(client, record, "scur", 4)
 					go send_gauge(client, record, "smax", 5)
@@ -96,6 +115,9 @@ func main() {
 					go send_gauge(client, record, "rtime", 60)
 					go send_gauge(client, record, "ttime", 61)
 				}
+			}
+			if c.Bool("debug") {
+				fmt.Printf("END RECORDS.")
 			}
 			color.White("-------------------")
 		}
