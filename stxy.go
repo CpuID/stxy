@@ -4,8 +4,8 @@ import (
 	"encoding/csv"
 	"fmt"
 	"github.com/cactus/go-statsd-client/statsd"
-	"github.com/codegangsta/cli"
 	"github.com/fatih/color"
+	"gopkg.in/urfave/cli.v1"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -42,14 +42,18 @@ func main() {
 			Usage: "host:port of statsd server",
 		},
 		cli.StringFlag{
-			Name:  "prefix,p",
+			Name:  "prefix, p",
 			Usage: "statsd namespace",
 			Value: "haproxy",
 		},
 		cli.IntFlag{
-			Name:  "interval,i",
+			Name:  "interval, i",
 			Usage: "time in milliseconds",
 			Value: 10000,
+		},
+		cli.BoolFlag{
+			Name:  "no-stdout, o",
+			Usage: "don't send to stdout as well as statsd",
 		},
 		cli.BoolFlag{
 			Name:  "debug,d",
@@ -57,10 +61,9 @@ func main() {
 		},
 	}
 	app.Action = func(c *cli.Context) {
-		log.Printf("ACTION STARTING NOW. Debug: %t\n", c.Bool("debug"))
 		interval := c.Int("interval")
-		if interval < 10 {
-			log.Printf("ERROR: interval should be at least 10ms, exiting.")
+		if interval < 100 {
+			log.Printf("ERROR: interval should be at least 100ms, exiting.")
 			os.Exit(1)
 		}
 		failures := 0
@@ -135,48 +138,53 @@ func main() {
 					fmt.Printf("%s :: %+v\n", k2, record)
 				}
 				if record[1] == "BACKEND" {
-					go send_gauge(client, record, "scur", 4)
-					go send_gauge(client, record, "smax", 5)
-					go send_gauge(client, record, "ereq", 12)
-					go send_gauge(client, record, "econ", 13)
-					go send_gauge(client, record, "rate", 33)
-					go send_gauge(client, record, "bin", 8)
-					go send_gauge(client, record, "bout", 9)
-					go send_counter(previous[fmt.Sprint("1xx_", record[0])], client, record, "hrsp_1xx", 39)
-					go send_counter(previous[fmt.Sprint("2xx_", record[0])], client, record, "hrsp_2xx", 40)
-					go send_counter(previous[fmt.Sprint("3xx_", record[0])], client, record, "hrsp_3xx", 41)
-					go send_counter(previous[fmt.Sprint("4xx_", record[0])], client, record, "hrsp_4xx", 42)
-					go send_counter(previous[fmt.Sprint("5xx_", record[0])], client, record, "hrsp_5xx", 43)
-					go send_gauge(client, record, "qtime", 58)
-					go send_gauge(client, record, "ctime", 59)
-					go send_gauge(client, record, "rtime", 60)
-					go send_gauge(client, record, "ttime", 61)
+					go send_gauge(client, c.Bool("no-stdout"), record, "scur", 4)
+					go send_gauge(client, c.Bool("no-stdout"), record, "smax", 5)
+					go send_gauge(client, c.Bool("no-stdout"), record, "ereq", 12)
+					go send_gauge(client, c.Bool("no-stdout"), record, "econ", 13)
+					go send_gauge(client, c.Bool("no-stdout"), record, "rate", 33)
+					go send_gauge(client, c.Bool("no-stdout"), record, "bin", 8)
+					go send_gauge(client, c.Bool("no-stdout"), record, "bout", 9)
+					go send_counter(previous[fmt.Sprint("1xx_", record[0])], client, c.Bool("no-stdout"), record, "hrsp_1xx", 39)
+					go send_counter(previous[fmt.Sprint("2xx_", record[0])], client, c.Bool("no-stdout"), record, "hrsp_2xx", 40)
+					go send_counter(previous[fmt.Sprint("3xx_", record[0])], client, c.Bool("no-stdout"), record, "hrsp_3xx", 41)
+					go send_counter(previous[fmt.Sprint("4xx_", record[0])], client, c.Bool("no-stdout"), record, "hrsp_4xx", 42)
+					go send_counter(previous[fmt.Sprint("5xx_", record[0])], client, c.Bool("no-stdout"), record, "hrsp_5xx", 43)
+					go send_gauge(client, c.Bool("no-stdout"), record, "qtime", 58)
+					go send_gauge(client, c.Bool("no-stdout"), record, "ctime", 59)
+					go send_gauge(client, c.Bool("no-stdout"), record, "rtime", 60)
+					go send_gauge(client, c.Bool("no-stdout"), record, "ttime", 61)
 				}
 			}
 			if c.Bool("debug") {
 				fmt.Printf("END RECORDS\n")
 			}
+			log.Printf("Metrics sent to statsd.\n")
 			color.White("-------------------")
 		}
 	}
 	app.Run(os.Args)
 }
 
-func send_gauge(client statsd.Statter, v []string, name string, position int64) {
+func send_gauge(client statsd.Statter, no_stdout bool, v []string, name string, position int64) {
 	stat := fmt.Sprint(v[0], ".", name)
 	value, _ := strconv.ParseInt(v[position], 10, 64)
-	fmt.Println(fmt.Sprint(stat, ":", value, "|g"))
+	if no_stdout == false {
+		fmt.Println(fmt.Sprint(stat, ":", value, "|g"))
+	}
 	err := client.Gauge(stat, value, 1.0)
 	if err != nil {
 		log.Printf("Error sending metric: %+v", err)
 	}
 }
 
-func send_counter(previous int64, client statsd.Statter, v []string, name string, position int64) {
+func send_counter(previous int64, client statsd.Statter, no_stdout bool, v []string, name string, position int64) {
 	stat := fmt.Sprint(v[0], ".", name)
 	value_at_interval, _ := strconv.ParseInt(v[position], 10, 64)
 	value := value_at_interval - previous
-	fmt.Println(fmt.Sprint(stat, ":", value, "|c"))
+	if no_stdout == false {
+		fmt.Println(fmt.Sprint(stat, ":", value, "|c"))
+	}
 	err := client.Inc(stat, value, 1)
 	if err != nil {
 		log.Printf("Error sending metric: %+v", err)
