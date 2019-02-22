@@ -3,6 +3,7 @@ Haproxy Stats to StatsD written in Golang
 
 ### Halp!
 ```
+$ ./stxy --help
 NAME:
    stxy - haproxy stats to statsd
 
@@ -10,18 +11,23 @@ USAGE:
    stxy [global options] command [command options] [arguments...]
 
 VERSION:
-   0.0.1
+   0.0.4
 
 COMMANDS:
-   help, h	Shows a list of commands or help for one command
+     help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --haproxy-url "localhost:22002/;csv"	host:port of haproxy (keep the csv part)
-   --statsd-url, -s "localhost:8125"	host:port of statsd server
-   --prefix, -p "haproxy"		statsd namespace
-   --interval, -i "5000"		time in milliseconds to periodically check haproxy
-   --help, -h				show help
-   --version, -v			print the version
+   --haproxy-url value           URL for haproxy server (default: "http://localhost:22002/;csv")
+   --haproxy-user value          HTTP auth username for haproxy server (default: "username")
+   --haproxy-pass value          HTTP auth password for haproxy server (default: "password")
+   --statsd-url value, -s value  host:port of statsd server (default: "localhost:8125")
+   --prefix value, -p value      statsd namespace (default: "haproxy")
+   --interval value, -i value    time in milliseconds between retrievals (default: 10000)
+   --failures value, -f value    exit if this qty of contiguous failures are reached (default: 10)
+   --no-stdout, -o               don't send to stdout as well as statsd
+   --debug, -d                   debug mode
+   --help, -h                    show help
+   --version, -v                 print the version
 ```
 
 ### Stats Tracked:
