@@ -54,7 +54,7 @@ func main() {
 		cli.IntFlag{
 			Name:  "failures, f",
 			Usage: "exit if this qty of contiguous failures are reached",
-			Value: 30,
+			Value: 10,
 		},
 		cli.BoolFlag{
 			Name:  "no-stdout, o",
@@ -98,6 +98,7 @@ func main() {
 				// Reset failures if there's success.
 				failures = 0
 			}
+			// populate the "before" values, aka previous
 			previous := map[string]int64{}
 			if c.Bool("debug") == true {
 				fmt.Printf("INITIAL:\n")
@@ -120,13 +121,15 @@ func main() {
 			if c.Bool("debug") {
 				fmt.Printf("END INITIAL\n")
 			}
+			// wait the interval
 			time.Sleep(time.Duration(interval) * time.Millisecond)
+			// retrieve the stats again
 			records, err := get_stats(c.String("haproxy-url"), c.String("haproxy-user"), c.String("haproxy-pass"))
 			if err != nil {
 				failures += 1
 				log.Printf("Error retrieving haproxy stats: %s\n", err.Error())
-				if failures > 10 {
-					log.Printf("Max of 10 sequential failures reached, exiting.\n")
+				if failures > c.Int("failures") {
+					log.Printf("Max of %d sequential failures reached, exiting.\n", c.Int("failures"))
 					os.Exit(1)
 				} else {
 					log.Printf("Sleeping %d ms before retrying...\n", interval)
@@ -138,6 +141,7 @@ func main() {
 			if c.Bool("debug") {
 				fmt.Printf("RECORDS:\n")
 			}
+			// send metrics along
 			for k2, record := range records {
 				if c.Bool("debug") {
 					fmt.Printf("%s :: %+v\n", k2, record)
@@ -150,6 +154,7 @@ func main() {
 					go send_gauge(client, c.Bool("no-stdout"), record, "rate", 33)
 					go send_gauge(client, c.Bool("no-stdout"), record, "bin", 8)
 					go send_gauge(client, c.Bool("no-stdout"), record, "bout", 9)
+					// for the counters, a delta is used between previous and current
 					go send_counter(previous[fmt.Sprint("1xx_", record[0])], client, c.Bool("no-stdout"), record, "hrsp_1xx", 39)
 					go send_counter(previous[fmt.Sprint("2xx_", record[0])], client, c.Bool("no-stdout"), record, "hrsp_2xx", 40)
 					go send_counter(previous[fmt.Sprint("3xx_", record[0])], client, c.Bool("no-stdout"), record, "hrsp_3xx", 41)
@@ -201,6 +206,17 @@ func get_value(v []string, name string, position int64) int64 {
 	return value
 }
 
+// Substitute dots for underscores in the proxy names, first field of each record
+// So that we get nicely structured statsd namespaces (not multiple level)
+func substitute_proxy_names(records [][]string) [][]string {
+	for k1, v1 := range records {
+		for k2, v2 := range v1 {
+			records[k1][k2] = strings.Replace(v2, ".", "_", -1)
+		}
+	}
+	return records
+}
+
 func get_stats(url string, user string, pass string) ([][]string, error) {
 	// TODO: validate url, make sure its fully qualified.
 
@@ -221,5 +237,10 @@ func get_stats(url string, user string, pass string) ([][]string, error) {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// Substitute proxy names
+	records = substitute_proxy_names(records)
+
+	// Return the results
 	return records, nil
 }
