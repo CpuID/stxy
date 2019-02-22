@@ -57,6 +57,7 @@ func main() {
 		},
 	}
 	app.Action = func(c *cli.Context) {
+		log.Printf("ACTION STARTING NOW. Debug: %t\n", c.Bool("debug"))
 		interval := c.Int("interval")
 		if interval < 10 {
 			log.Printf("ERROR: interval should be at least 10ms, exiting.")
@@ -98,7 +99,7 @@ func main() {
 			}
 			for k1, v := range initial_stats {
 				if c.Bool("debug") == true {
-					fmt.Printf("%s :: %+v\n", k1, v)
+					fmt.Printf("%d :: %+v\n", k1, v)
 				}
 				if v[1] == "BACKEND" {
 					previous[fmt.Sprint("1xx_", v[0])] = get_value(v, "hrsp_1xx", 39)
@@ -109,7 +110,7 @@ func main() {
 				}
 			}
 			if c.Bool("debug") {
-				fmt.Printf("END INITIAL.")
+				fmt.Printf("END INITIAL\n")
 			}
 			time.Sleep(time.Duration(interval) * time.Millisecond)
 			records, err := get_stats(c.String("haproxy-url"), c.String("haproxy-user"), c.String("haproxy-pass"))
@@ -127,7 +128,7 @@ func main() {
 				}
 			}
 			if c.Bool("debug") {
-				fmt.Printf("RECORDS:")
+				fmt.Printf("RECORDS:\n")
 			}
 			for k2, record := range records {
 				if c.Bool("debug") {
@@ -153,7 +154,7 @@ func main() {
 				}
 			}
 			if c.Bool("debug") {
-				fmt.Printf("END RECORDS.")
+				fmt.Printf("END RECORDS\n")
 			}
 			color.White("-------------------")
 		}
