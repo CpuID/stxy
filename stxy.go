@@ -48,8 +48,13 @@ func main() {
 		},
 		cli.IntFlag{
 			Name:  "interval, i",
-			Usage: "time in milliseconds",
+			Usage: "time in milliseconds between retrievals",
 			Value: 10000,
+		},
+		cli.IntFlag{
+			Name:  "failures, f",
+			Usage: "exit if this qty of contiguous failures are reached",
+			Value: 30,
 		},
 		cli.BoolFlag{
 			Name:  "no-stdout, o",
@@ -67,21 +72,21 @@ func main() {
 			os.Exit(1)
 		}
 		failures := 0
+		client, err := statsd.NewClient(c.String("s"), c.String("p"))
+		// handle any errors
+		if err != nil {
+			log.Fatal(err)
+		}
+		// make sure to clean up
+		defer client.Close()
 		for {
-			// TODO: can we reuse this...? rather than recreating per iteration?
-			client, err := statsd.NewClient(c.String("s"), c.String("p"))
-			// handle any errors
-			if err != nil {
-				log.Fatal(err)
-			}
-			// make sure to clean up
-			defer client.Close()
+			// start of iteration: retrieve some stats
 			initial_stats, err := get_stats(c.String("haproxy-url"), c.String("haproxy-user"), c.String("haproxy-pass"))
 			if err != nil {
 				failures += 1
 				log.Printf("Error retrieving haproxy stats: %s\n", err.Error())
-				if failures > 10 {
-					log.Printf("Max of 10 sequential failures reached, exiting.\n")
+				if failures > c.Int("failures") {
+					log.Printf("Max of %d sequential failures reached, exiting.\n", c.Int("failures"))
 					os.Exit(1)
 				} else {
 					log.Printf("Sleeping %d ms before retrying...\n", interval)
