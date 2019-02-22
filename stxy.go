@@ -43,7 +43,7 @@ func main() {
 		},
 		cli.StringFlag{
 			Name:  "prefix, p",
-			Usage: "statsd namespace",
+			Usage: "statsd namespace prefix",
 			Value: "haproxy",
 		},
 		cli.IntFlag{
@@ -147,23 +147,23 @@ func main() {
 					fmt.Printf("%s :: %+v\n", k2, record)
 				}
 				if record[1] == "BACKEND" {
-					go send_gauge(client, c.Bool("no-stdout"), record, "scur", 4)
-					go send_gauge(client, c.Bool("no-stdout"), record, "smax", 5)
-					go send_gauge(client, c.Bool("no-stdout"), record, "ereq", 12)
-					go send_gauge(client, c.Bool("no-stdout"), record, "econ", 13)
-					go send_gauge(client, c.Bool("no-stdout"), record, "rate", 33)
-					go send_gauge(client, c.Bool("no-stdout"), record, "bin", 8)
-					go send_gauge(client, c.Bool("no-stdout"), record, "bout", 9)
+					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "scur", 4)
+					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "smax", 5)
+					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "ereq", 12)
+					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "econ", 13)
+					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "rate", 33)
+					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "bin", 8)
+					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "bout", 9)
 					// for the counters, a delta is used between previous and current
-					go send_counter(previous[fmt.Sprint("1xx_", record[0])], client, c.Bool("no-stdout"), record, "hrsp_1xx", 39)
-					go send_counter(previous[fmt.Sprint("2xx_", record[0])], client, c.Bool("no-stdout"), record, "hrsp_2xx", 40)
-					go send_counter(previous[fmt.Sprint("3xx_", record[0])], client, c.Bool("no-stdout"), record, "hrsp_3xx", 41)
-					go send_counter(previous[fmt.Sprint("4xx_", record[0])], client, c.Bool("no-stdout"), record, "hrsp_4xx", 42)
-					go send_counter(previous[fmt.Sprint("5xx_", record[0])], client, c.Bool("no-stdout"), record, "hrsp_5xx", 43)
-					go send_gauge(client, c.Bool("no-stdout"), record, "qtime", 58)
-					go send_gauge(client, c.Bool("no-stdout"), record, "ctime", 59)
-					go send_gauge(client, c.Bool("no-stdout"), record, "rtime", 60)
-					go send_gauge(client, c.Bool("no-stdout"), record, "ttime", 61)
+					go send_counter(previous[fmt.Sprint("1xx_", record[0])], client, c.Bool("no-stdout"), c.String("prefix"), record, "hrsp_1xx", 39)
+					go send_counter(previous[fmt.Sprint("2xx_", record[0])], client, c.Bool("no-stdout"), c.String("prefix"), record, "hrsp_2xx", 40)
+					go send_counter(previous[fmt.Sprint("3xx_", record[0])], client, c.Bool("no-stdout"), c.String("prefix"), record, "hrsp_3xx", 41)
+					go send_counter(previous[fmt.Sprint("4xx_", record[0])], client, c.Bool("no-stdout"), c.String("prefix"), record, "hrsp_4xx", 42)
+					go send_counter(previous[fmt.Sprint("5xx_", record[0])], client, c.Bool("no-stdout"), c.String("prefix"), record, "hrsp_5xx", 43)
+					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "qtime", 58)
+					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "ctime", 59)
+					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "rtime", 60)
+					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "ttime", 61)
 				}
 			}
 			if c.Bool("debug") {
@@ -176,8 +176,16 @@ func main() {
 	app.Run(os.Args)
 }
 
-func send_gauge(client statsd.Statter, no_stdout bool, v []string, name string, position int64) {
-	stat := fmt.Sprint(v[0], ".", name)
+func non_empty_prefix_with_dot(prefix string) string {
+	use_prefix := ""
+	if len(prefix) > 0 {
+		use_prefix = fmt.Sprintf("%s.", prefix)
+	}
+	return use_prefix
+}
+
+func send_gauge(client statsd.Statter, no_stdout bool, prefix string, v []string, name string, position int64) {
+	stat := fmt.Sprintf("%s%s.%s", non_empty_prefix_with_dot(prefix), v[0], name)
 	value, _ := strconv.ParseInt(v[position], 10, 64)
 	if no_stdout == false {
 		fmt.Println(fmt.Sprint(stat, ":", value, "|g"))
@@ -188,8 +196,8 @@ func send_gauge(client statsd.Statter, no_stdout bool, v []string, name string, 
 	}
 }
 
-func send_counter(previous int64, client statsd.Statter, no_stdout bool, v []string, name string, position int64) {
-	stat := fmt.Sprint(v[0], ".", name)
+func send_counter(previous int64, client statsd.Statter, no_stdout bool, prefix string, v []string, name string, position int64) {
+	stat := fmt.Sprintf("%s%s.%s", non_empty_prefix_with_dot(prefix), v[0], name)
 	value_at_interval, _ := strconv.ParseInt(v[position], 10, 64)
 	value := value_at_interval - previous
 	if no_stdout == false {
