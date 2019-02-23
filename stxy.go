@@ -46,6 +46,11 @@ func main() {
 			Usage: "statsd namespace prefix",
 			Value: "haproxy",
 		},
+		// TODO: implement
+		//cli.BoolFlag{
+		//	Name:  "per-server",
+		//	Usage: "instead of aggregated per backend stats, export per server stats (N servers per backend)",
+		//},
 		cli.IntFlag{
 			Name:  "interval, i",
 			Usage: "time in milliseconds between retrievals",
@@ -60,6 +65,7 @@ func main() {
 			Name:  "no-stdout, o",
 			Usage: "don't send to stdout as well as statsd",
 		},
+		// Was used in the past, left in place for ease of troubleshooting later
 		cli.BoolFlag{
 			Name:  "debug,d",
 			Usage: "debug mode",
@@ -71,7 +77,6 @@ func main() {
 			log.Printf("ERROR: interval should be at least 100ms, exiting.")
 			os.Exit(1)
 		}
-		failures := 0
 		client, err := statsd.NewClient(c.String("s"), c.String("p"))
 		// handle any errors
 		if err != nil {
@@ -79,101 +84,95 @@ func main() {
 		}
 		// make sure to clean up
 		defer client.Close()
+
+		previous := map[string]int64{}
+
+		// No stats retrieved yet, do an initial retrieval, set them as previous, then sleep
+		// Usually only used on first startup
+
+		// Retrieve the stats
+		records, err := get_stats_auto_retry(c.String("haproxy-url"), c.String("haproxy-user"), c.String("haproxy-pass"), c.Int("failures"))
+		if err != nil {
+			log.Printf("Error retrieving initial stats (exiting): %s\n", err.Error())
+			os.Exit(1)
+		}
+		// Set the initial retrieval data as previous
+		previous = populate_previous(records)
+		// Then sleep for one interval
+		time.Sleep(time.Duration(interval) * time.Millisecond)
+
+		no_stdout := c.Bool("no-stdout")
+		prefix := c.String("prefix")
+
 		for {
-			// start of iteration: retrieve some stats
-			initial_stats, err := get_stats(c.String("haproxy-url"), c.String("haproxy-user"), c.String("haproxy-pass"))
+			// Per interval, retrieve the stats, send some metrics, then set previous to the values retrieved here
+			records, err = get_stats_auto_retry(c.String("haproxy-url"), c.String("haproxy-user"), c.String("haproxy-pass"), c.Int("failures"))
 			if err != nil {
-				failures += 1
-				log.Printf("Error retrieving haproxy stats: %s\n", err.Error())
-				if failures > c.Int("failures") {
-					log.Printf("Max of %d sequential failures reached, exiting.\n", c.Int("failures"))
-					os.Exit(1)
-				} else {
-					log.Printf("Sleeping %d ms before retrying...\n", interval)
-					time.Sleep(time.Duration(interval) * time.Millisecond)
-					log.Printf("Retrying...\n")
-					continue
-				}
-			} else {
-				// Reset failures if there's success.
-				failures = 0
-			}
-			// populate the "before" values, aka previous
-			previous := map[string]int64{}
-			if c.Bool("debug") == true {
-				fmt.Printf("INITIAL:\n")
-			}
-			if c.Bool("debug") == true {
-				fmt.Printf("%+v\n------------\n", initial_stats)
-			}
-			for k1, v := range initial_stats {
-				if c.Bool("debug") == true {
-					fmt.Printf("%d :: %+v\n", k1, v)
-				}
-				if v[1] == "BACKEND" {
-					previous[fmt.Sprint("1xx_", v[0])] = get_value(v, "hrsp_1xx", 39)
-					previous[fmt.Sprint("2xx_", v[0])] = get_value(v, "hrsp_2xx", 40)
-					previous[fmt.Sprint("3xx_", v[0])] = get_value(v, "hrsp_3xx", 41)
-					previous[fmt.Sprint("4xx_", v[0])] = get_value(v, "hrsp_4xx", 42)
-					previous[fmt.Sprint("5xx_", v[0])] = get_value(v, "hrsp_5xx", 43)
-				}
-			}
-			if c.Bool("debug") {
-				fmt.Printf("END INITIAL\n")
-			}
-			// wait the interval
-			time.Sleep(time.Duration(interval) * time.Millisecond)
-			// retrieve the stats again
-			records, err := get_stats(c.String("haproxy-url"), c.String("haproxy-user"), c.String("haproxy-pass"))
-			if err != nil {
-				failures += 1
-				log.Printf("Error retrieving haproxy stats: %s\n", err.Error())
-				if failures > c.Int("failures") {
-					log.Printf("Max of %d sequential failures reached, exiting.\n", c.Int("failures"))
-					os.Exit(1)
-				} else {
-					log.Printf("Sleeping %d ms before retrying...\n", interval)
-					time.Sleep(time.Duration(interval) * time.Millisecond)
-					log.Printf("Retrying...\n")
-					continue
-				}
-			}
-			if c.Bool("debug") {
-				fmt.Printf("RECORDS:\n")
+				log.Printf("Error retrieving next stats (exiting): %s\n", err.Error())
+				os.Exit(1)
 			}
 			// send metrics along
-			for k2, record := range records {
-				if c.Bool("debug") {
-					fmt.Printf("%s :: %+v\n", k2, record)
-				}
+			for _, record := range records {
+				// Only backend stats are exported
+				// TODO: do we want to export others? per server rather than aggregated per backend only?
+				// skimming through the list, theres a few that don't return for server but do for backend, so
+				// would need to do a hybrid if we move to per server...
+				// https://cbonte.github.io/haproxy-dconv/1.7/management.html#9.1 - last arg = position
 				if record[1] == "BACKEND" {
-					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "scur", 4)
-					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "smax", 5)
-					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "ereq", 12)
-					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "econ", 13)
-					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "rate", 33)
-					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "bin", 8)
-					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "bout", 9)
+					go send_gauge(client, no_stdout, prefix, record, "scur", 4)
+					go send_gauge(client, no_stdout, prefix, record, "smax", 5)
+					go send_gauge(client, no_stdout, prefix, record, "slim", 6)
+					go send_gauge(client, no_stdout, prefix, record, "bin", 8)
+					go send_gauge(client, no_stdout, prefix, record, "bout", 9)
+					// TODOLATER: ereq is only available for a frontend or listener, not a backend)
+					// go send_gauge(client, no_stdout, prefix, record, "ereq", 12)
+					go send_gauge(client, no_stdout, prefix, record, "econ", 13)
+					go send_gauge(client, no_stdout, prefix, record, "eresp", 14)
+					go send_gauge(client, no_stdout, prefix, record, "wretr", 15)
+					go send_gauge(client, no_stdout, prefix, record, "wredis", 16)
+					// TODOLATER: 17 status, parse the value and set a 0 or 1 gauge for up/down? 18/19 will suffice for now
+					go send_gauge(client, no_stdout, prefix, record, "act", 19)
+					go send_gauge(client, no_stdout, prefix, record, "bck", 20)
+					go send_gauge(client, no_stdout, prefix, record, "lastchg", 23)
+					go send_gauge(client, no_stdout, prefix, record, "rate", 33)
+					go send_gauge(client, no_stdout, prefix, record, "rate_max", 35)
 					// for the counters, a delta is used between previous and current
-					go send_counter(previous[fmt.Sprint("1xx_", record[0])], client, c.Bool("no-stdout"), c.String("prefix"), record, "hrsp_1xx", 39)
-					go send_counter(previous[fmt.Sprint("2xx_", record[0])], client, c.Bool("no-stdout"), c.String("prefix"), record, "hrsp_2xx", 40)
-					go send_counter(previous[fmt.Sprint("3xx_", record[0])], client, c.Bool("no-stdout"), c.String("prefix"), record, "hrsp_3xx", 41)
-					go send_counter(previous[fmt.Sprint("4xx_", record[0])], client, c.Bool("no-stdout"), c.String("prefix"), record, "hrsp_4xx", 42)
-					go send_counter(previous[fmt.Sprint("5xx_", record[0])], client, c.Bool("no-stdout"), c.String("prefix"), record, "hrsp_5xx", 43)
-					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "qtime", 58)
-					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "ctime", 59)
-					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "rtime", 60)
-					go send_gauge(client, c.Bool("no-stdout"), c.String("prefix"), record, "ttime", 61)
+					go send_counter(previous[fmt.Sprint("1xx_", record[0])], client, no_stdout, prefix, record, "hrsp_1xx", 39)
+					go send_counter(previous[fmt.Sprint("2xx_", record[0])], client, no_stdout, prefix, record, "hrsp_2xx", 40)
+					go send_counter(previous[fmt.Sprint("3xx_", record[0])], client, no_stdout, prefix, record, "hrsp_3xx", 41)
+					go send_counter(previous[fmt.Sprint("4xx_", record[0])], client, no_stdout, prefix, record, "hrsp_4xx", 42)
+					go send_counter(previous[fmt.Sprint("5xx_", record[0])], client, no_stdout, prefix, record, "hrsp_5xx", 43)
+					go send_gauge(client, no_stdout, prefix, record, "qtime", 58)
+					go send_gauge(client, no_stdout, prefix, record, "ctime", 59)
+					go send_gauge(client, no_stdout, prefix, record, "rtime", 60)
+					go send_gauge(client, no_stdout, prefix, record, "ttime", 61)
 				}
 			}
-			if c.Bool("debug") {
-				fmt.Printf("END RECORDS\n")
-			}
+			// Now repopulate the previous from the last lot of stats retrieved, used on the next iteration.
+			previous = populate_previous(records)
 			log.Printf("Metrics sent to statsd.\n")
 			color.White("-------------------")
+			// Sleep for the interval
+			time.Sleep(time.Duration(interval) * time.Millisecond)
 		}
 	}
 	app.Run(os.Args)
+}
+
+func populate_previous(records [][]string) map[string]int64 {
+	// New map to return, always starts fresh (no need to retain data past one iteration above this function)
+	previous := map[string]int64{}
+	for _, v := range records {
+		// https://cbonte.github.io/haproxy-dconv/1.7/management.html#9.1 - last arg = position
+		if v[1] == "BACKEND" {
+			previous[fmt.Sprint("1xx_", v[0])] = get_value(v, "hrsp_1xx", 39)
+			previous[fmt.Sprint("2xx_", v[0])] = get_value(v, "hrsp_2xx", 40)
+			previous[fmt.Sprint("3xx_", v[0])] = get_value(v, "hrsp_3xx", 41)
+			previous[fmt.Sprint("4xx_", v[0])] = get_value(v, "hrsp_4xx", 42)
+			previous[fmt.Sprint("5xx_", v[0])] = get_value(v, "hrsp_5xx", 43)
+		}
+	}
+	return previous
 }
 
 func non_empty_prefix_with_dot(prefix string) string {
@@ -228,6 +227,7 @@ func substitute_proxy_names(records [][]string) [][]string {
 func get_stats(url string, user string, pass string) ([][]string, error) {
 	// TODO: validate url, make sure its fully qualified.
 
+	// TODO: generate a single http.client{}, pass it in?
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", url, nil)
 	if len(user) > 0 && len(pass) > 0 {
@@ -239,11 +239,14 @@ func get_stats(url string, user string, pass string) ([][]string, error) {
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return [][]string{}, err
+	}
 
 	r := csv.NewReader(strings.NewReader(string(body)))
 	records, err := r.ReadAll()
 	if err != nil {
-		log.Fatal(err)
+		return [][]string{}, err
 	}
 
 	// Substitute proxy names
@@ -251,4 +254,27 @@ func get_stats(url string, user string, pass string) ([][]string, error) {
 
 	// Return the results
 	return records, nil
+}
+
+// Failures must be contiguous to trigger an exit, so the tally is function local
+func get_stats_auto_retry(url string, user string, pass string, max_failures int) ([][]string, error) {
+	failures := 0
+	// Hard defined 5 seconds between retries
+	retry_ms := 5000
+	for {
+		records, err := get_stats(url, user, pass)
+		if err != nil {
+			failures += 1
+			log.Printf("Error retrieving haproxy stats: %s\n", err.Error())
+			if failures > max_failures {
+				return [][]string{}, fmt.Errorf("Max of %d sequential failures reached", max_failures)
+			} else {
+				log.Printf("Sleeping %d ms before retrying... (%d failures so far)\n", retry_ms, failures)
+				time.Sleep(time.Duration(retry_ms) * time.Millisecond)
+				log.Printf("Retrying...\n")
+				continue
+			}
+		}
+		return records, nil
+	}
 }
