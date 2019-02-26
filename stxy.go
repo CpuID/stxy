@@ -175,6 +175,7 @@ func populate_previous(records [][]string) map[string]int64 {
 	return previous
 }
 
+// Only used for stdout display purposes, the statsd.NewClient() handles actual prefix additions
 func non_empty_prefix_with_dot(prefix string) string {
 	use_prefix := ""
 	if len(prefix) > 0 {
@@ -184,10 +185,11 @@ func non_empty_prefix_with_dot(prefix string) string {
 }
 
 func send_gauge(client statsd.Statter, no_stdout bool, prefix string, v []string, name string, position int64) {
-	stat := fmt.Sprintf("%s%s.%s", non_empty_prefix_with_dot(prefix), v[0], name)
+	stat := fmt.Sprintf("%s.%s", v[0], name)
 	value, _ := strconv.ParseInt(v[position], 10, 64)
 	if no_stdout == false {
-		fmt.Println(fmt.Sprint(stat, ":", value, "|g"))
+		// Prefix addition only used for stdout display purposes, the statsd.NewClient() handles actual prefix additions for sent metrics
+		fmt.Printf("%s%s:%d|g\n", non_empty_prefix_with_dot(prefix), stat, value)
 	}
 	err := client.Gauge(stat, value, 1.0)
 	if err != nil {
@@ -196,11 +198,12 @@ func send_gauge(client statsd.Statter, no_stdout bool, prefix string, v []string
 }
 
 func send_counter(previous int64, client statsd.Statter, no_stdout bool, prefix string, v []string, name string, position int64) {
-	stat := fmt.Sprintf("%s%s.%s", non_empty_prefix_with_dot(prefix), v[0], name)
+	stat := fmt.Sprintf("%s.%s", v[0], name)
 	value_at_interval, _ := strconv.ParseInt(v[position], 10, 64)
 	value := value_at_interval - previous
 	if no_stdout == false {
-		fmt.Println(fmt.Sprint(stat, ":", value, "|c"))
+		// Prefix addition only used for stdout display purposes, the statsd.NewClient() handles actual prefix additions for sent metrics
+		fmt.Printf("%s%s:%d|c\n", non_empty_prefix_with_dot(prefix), stat, value)
 	}
 	err := client.Inc(stat, value, 1)
 	if err != nil {
