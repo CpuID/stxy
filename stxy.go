@@ -4,7 +4,6 @@ import (
 	"encoding/csv"
 	"fmt"
 	"github.com/cactus/go-statsd-client/statsd"
-	"github.com/fatih/color"
 	"gopkg.in/urfave/cli.v1"
 	"io/ioutil"
 	"log"
@@ -151,7 +150,6 @@ func main() {
 			// Now repopulate the previous from the last lot of stats retrieved, used on the next iteration.
 			previous = populate_previous(records)
 			log.Printf("Metrics sent to statsd.\n")
-			color.White("-------------------")
 			// Sleep for the interval
 			time.Sleep(time.Duration(interval) * time.Millisecond)
 		}
