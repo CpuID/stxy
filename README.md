@@ -31,6 +31,9 @@ GLOBAL OPTIONS:
 ```
 
 ### Stats Tracked:
+
+See the [haproxy docs - CSV format](https://cbonte.github.io/haproxy-dconv/1.7/management.html#9.1) for the secret decoder ring for metric names -> descriptions.
+
 ```
 admin.FRONTEND.scur:1|g
 admin.FRONTEND.smax:1|g
